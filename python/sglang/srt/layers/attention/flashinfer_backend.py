@@ -484,6 +484,13 @@ class FlashInferAttnBackend(AttentionBackend):
                 # Use new backend-specific implementation
                 multi_item_params = self._process_multi_item_scoring(forward_batch)
 
+            # Pre-compute prefix_lens_sum on CPU to avoid device sync
+            prefix_lens_sum = (
+                sum(forward_batch.extend_prefix_lens_cpu)
+                if forward_batch.extend_prefix_lens_cpu is not None
+                else None
+            )
+
             self.indices_updater_prefill.update(
                 forward_batch.req_pool_indices,
                 forward_batch.seq_lens,
@@ -496,6 +503,7 @@ class FlashInferAttnBackend(AttentionBackend):
                 spec_info=None,
                 fixed_split_size=self.prefill_split_tile_size,
                 multi_item_params=multi_item_params,
+                prefix_lens_sum=prefix_lens_sum,
             )
             self.forward_metadata = PrefillMetadata(
                 self.prefill_wrappers_paged,
@@ -1207,6 +1215,7 @@ class FlashInferIndicesUpdaterPrefill:
         encoder_lens: Optional[torch.Tensor],
         spec_info: Optional[SpecInput],
         fixed_split_size: Optional[int] = None,
+        prefix_lens_sum: Optional[int] = None,
     ):
         # Keep the signature for type checking. It will be assigned during runtime.
         raise NotImplementedError()
@@ -1224,12 +1233,16 @@ class FlashInferIndicesUpdaterPrefill:
         spec_info: Optional[SpecInput],
         fixed_split_size: Optional[int] = None,
         multi_item_params: Optional[MultiItemScoringParams] = None,
+        prefix_lens_sum: Optional[int] = None,
     ):
         if use_ragged:
-            # TODO: remove this device sync, we can use forward_batch.extend_prefix_lens_cpu
-            # and forward_batch.extend_seq_lens_cpu
             paged_kernel_lens = prefix_lens
-            paged_kernel_lens_sum = paged_kernel_lens.sum().item()
+            # Use pre-computed CPU sum to avoid device sync
+            if prefix_lens_sum is not None:
+                paged_kernel_lens_sum = prefix_lens_sum
+            else:
+                # Fallback to device sync if CPU sum not provided
+                paged_kernel_lens_sum = paged_kernel_lens.sum().item()
         else:
             paged_kernel_lens = seq_lens
             paged_kernel_lens_sum = seq_lens_sum
@@ -1264,6 +1277,7 @@ class FlashInferIndicesUpdaterPrefill:
         spec_info: Optional[SpecInput],
         fixed_split_size: Optional[int] = None,
         multi_item_params: Optional[MultiItemScoringParams] = None,
+        prefix_lens_sum: Optional[int] = None,
     ):
         for wrapper_id in range(2):
             if wrapper_id == 0:
@@ -1313,6 +1327,7 @@ class FlashInferIndicesUpdaterPrefill:
         spec_info: Optional[SpecInput],
         fixed_split_size: Optional[int] = None,
         multi_item_params: Optional[MultiItemScoringParams] = None,
+        prefix_lens_sum: Optional[int] = None,
     ):
         for wrapper_id in range(2):
             if wrapper_id == 0:

@@ -327,6 +327,13 @@ class FlashInferMLAAttnBackend(AttentionBackend):
                 and not is_in_piecewise_cuda_graph()
             )
 
+            # Pre-compute prefix_lens_sum on CPU to avoid device sync
+            prefix_lens_sum = (
+                sum(forward_batch.extend_prefix_lens_cpu)
+                if forward_batch.extend_prefix_lens_cpu is not None
+                else None
+            )
+
             self.indices_updater_prefill.update(
                 forward_batch.req_pool_indices,
                 forward_batch.seq_lens,
@@ -334,6 +341,7 @@ class FlashInferMLAAttnBackend(AttentionBackend):
                 prefix_lens,
                 prefill_wrapper_paged=self.prefill_wrapper_paged,
                 use_ragged=use_ragged,
+                prefix_lens_sum=prefix_lens_sum,
             )
             self.forward_metadata = PrefillMetadata(
                 self.prefill_wrapper_paged, use_ragged
@@ -792,10 +800,16 @@ class FlashInferMLAIndicesUpdaterPrefill:
         prefill_wrapper_paged: BatchMLAPagedAttentionWrapper,
         use_ragged: bool,
         spec_info: Optional[SpecInput] = None,
+        prefix_lens_sum: Optional[int] = None,
     ):
         if use_ragged:
             paged_kernel_lens = prefix_lens
-            paged_kernel_lens_sum = paged_kernel_lens.sum().item()
+            # Use pre-computed CPU sum to avoid device sync
+            if prefix_lens_sum is not None:
+                paged_kernel_lens_sum = prefix_lens_sum
+            else:
+                # Fallback to device sync if CPU sum not provided
+                paged_kernel_lens_sum = paged_kernel_lens.sum().item()
         else:
             paged_kernel_lens = seq_lens
             paged_kernel_lens_sum = seq_lens_sum
