@@ -1498,14 +1498,24 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             # For DLLM, we use a separate forward mode
             self.forward_mode = ForwardMode.DLLM_EXTEND
 
-        # Init tensors
+        # Init tensors — single pass instead of 5 separate list comprehensions
         reqs = self.reqs
-        input_ids = [r.fill_ids[len(r.prefix_indices) :] for r in reqs]
-        extend_num_tokens = sum(len(ids) for ids in input_ids)
-        seq_lens = [len(r.fill_ids) for r in reqs]
-        orig_seq_lens = [max(len(r.fill_ids), len(r.origin_input_ids)) for r in reqs]
-        prefix_lens = [len(r.prefix_indices) for r in reqs]
-        extend_lens = [r.extend_input_len for r in reqs]
+        input_ids = []
+        seq_lens = []
+        orig_seq_lens = []
+        prefix_lens = []
+        extend_lens = []
+        extend_num_tokens = 0
+        for r in reqs:
+            plen = len(r.prefix_indices)
+            flen = len(r.fill_ids)
+            ids = r.fill_ids[plen:]
+            input_ids.append(ids)
+            extend_num_tokens += len(ids)
+            seq_lens.append(flen)
+            orig_seq_lens.append(max(flen, len(r.origin_input_ids)))
+            prefix_lens.append(plen)
+            extend_lens.append(r.extend_input_len)
 
         # For matryoshka embeddings
         if self.model_config.is_matryoshka and any(
