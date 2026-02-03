@@ -108,6 +108,12 @@ global_workspace_buffer = None
 # This is used to remove some host-to-device copy overhead.
 global_override_indptr_cpu = None
 
+# DEBUG COUNTERS for device sync fix testing
+_debug_use_ragged_count = 0
+_debug_fast_path_count = 0
+_debug_fallback_count = 0
+_debug_use_ragged_false_count = 0
+
 
 class FlashInferAttnBackend(AttentionBackend):
     """Flashinfer attention kernels."""
@@ -1238,15 +1244,23 @@ class FlashInferIndicesUpdaterPrefill:
         multi_item_params: Optional[MultiItemScoringParams] = None,
         prefix_lens_sum: Optional[int] = None,
     ):
+        global _debug_use_ragged_count, _debug_fast_path_count, _debug_fallback_count, _debug_use_ragged_false_count
         if use_ragged:
+            _debug_use_ragged_count += 1
             paged_kernel_lens = prefix_lens
             # Use pre-computed CPU sum to avoid device sync
             if prefix_lens_sum is not None:
+                _debug_fast_path_count += 1
                 paged_kernel_lens_sum = prefix_lens_sum
             else:
                 # Fallback to device sync if CPU sum not provided
+                _debug_fallback_count += 1
                 paged_kernel_lens_sum = paged_kernel_lens.sum().item()
+            # Log every 100 calls
+            if _debug_use_ragged_count % 100 == 0:
+                logger.info(f"[DEBUG SYNC FIX] use_ragged={_debug_use_ragged_count}, fast_path={_debug_fast_path_count}, fallback={_debug_fallback_count}, not_ragged={_debug_use_ragged_false_count}")
         else:
+            _debug_use_ragged_false_count += 1
             paged_kernel_lens = seq_lens
             paged_kernel_lens_sum = seq_lens_sum
 
