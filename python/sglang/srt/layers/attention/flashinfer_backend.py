@@ -1256,13 +1256,16 @@ class FlashInferIndicesUpdaterPrefill:
                 # Fallback to device sync if CPU sum not provided
                 _debug_fallback_count += 1
                 paged_kernel_lens_sum = paged_kernel_lens.sum().item()
-            # Log every 100 calls
-            if _debug_use_ragged_count % 100 == 0:
-                logger.info(f"[DEBUG SYNC FIX] use_ragged={_debug_use_ragged_count}, fast_path={_debug_fast_path_count}, fallback={_debug_fallback_count}, not_ragged={_debug_use_ragged_false_count}")
+            # Log every 10 calls
+            if _debug_use_ragged_count % 10 == 0:
+                logger.info(f"[DEBUG SYNC FIX] use_ragged={_debug_use_ragged_count}, fast_path={_debug_fast_path_count}, fallback={_debug_fallback_count}, not_ragged={_debug_use_ragged_false_count}, prefix_sum={paged_kernel_lens_sum}")
         else:
             _debug_use_ragged_false_count += 1
             paged_kernel_lens = seq_lens
             paged_kernel_lens_sum = seq_lens_sum
+            # Log every 10 calls when not ragged
+            if _debug_use_ragged_false_count % 10 == 0:
+                logger.info(f"[DEBUG SYNC FIX] NOT_RAGGED count={_debug_use_ragged_false_count}, use_ragged_count={_debug_use_ragged_count}")
 
         self.call_begin_forward(
             self.prefill_wrapper_ragged,
