@@ -1381,7 +1381,20 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         dllm_staging_reqs: Optional[DllmStagingReqs] = None,
         dllm_config: Optional[DllmConfig] = None,
     ):
-        return_logprob = any(req.return_logprob for req in reqs)
+        # Single pass to compute all boolean flags instead of 6 separate iterations
+        return_logprob = False
+        has_stream = False
+        has_grammar = False
+        return_hidden_states = False
+        return_routed_experts = False
+        is_prefill_only = True
+        for req in reqs:
+            return_logprob |= req.return_logprob
+            has_stream |= req.stream
+            has_grammar |= bool(req.grammar)
+            return_hidden_states |= req.return_hidden_states
+            return_routed_experts |= req.return_routed_experts
+            is_prefill_only &= req.is_prefill_only
 
         is_hybrid_swa = False
         if isinstance(token_to_kv_pool_allocator, SWATokenToKVPoolAllocator):
@@ -1396,13 +1409,13 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             model_config=model_config,
             enable_overlap=enable_overlap,
             return_logprob=return_logprob,
-            has_stream=any(req.stream for req in reqs),
-            has_grammar=any(req.grammar for req in reqs),
+            has_stream=has_stream,
+            has_grammar=has_grammar,
             device=req_to_token_pool.device,
             spec_algorithm=spec_algorithm,
-            return_hidden_states=any(req.return_hidden_states for req in reqs),
-            return_routed_experts=any(req.return_routed_experts for req in reqs),
-            is_prefill_only=all(req.is_prefill_only for req in reqs),
+            return_hidden_states=return_hidden_states,
+            return_routed_experts=return_routed_experts,
+            is_prefill_only=is_prefill_only,
             chunked_req=chunked_req,
             dllm_staging_reqs=dllm_staging_reqs,
             dllm_config=dllm_config,
@@ -2110,7 +2123,15 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
         self.mamba_track_indices = None
         self.mamba_track_mask = None
         self.mamba_track_seqlens = None
-        self.return_logprob = any(req.return_logprob for req in self.reqs)
+        # Single pass to compute all boolean flags instead of 3 separate iterations
+        return_logprob = False
+        has_stream = False
+        has_grammar = False
+        for req in self.reqs:
+            return_logprob |= req.return_logprob
+            has_stream |= req.stream
+            has_grammar |= bool(req.grammar)
+        self.return_logprob = return_logprob
         if self.return_logprob:
             self.top_logprobs_nums = [self.top_logprobs_nums[i] for i in keep_indices]
             self.token_ids_logprobs = [self.token_ids_logprobs[i] for i in keep_indices]
@@ -2118,8 +2139,8 @@ class ScheduleBatch(ScheduleBatchDisaggregationDecodeMixin):
             self.top_logprobs_nums = None
             self.token_ids_logprobs = None
 
-        self.has_stream = any(req.stream for req in self.reqs)
-        self.has_grammar = any(req.grammar for req in self.reqs)
+        self.has_stream = has_stream
+        self.has_grammar = has_grammar
 
         self.sampling_info.filter_batch(keep_indices, keep_indices_device)
         # NOTE: spec_info filtered before batch filtering only happens in:
