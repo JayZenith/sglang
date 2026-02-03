@@ -2062,8 +2062,9 @@ class Scheduler(
             for req in can_run_list:
                 req.add_latency(RequestStage.PREFILL_WAITING)
 
+        can_run_set = set(can_run_list)
         self.waiting_queue = [
-            x for x in self.waiting_queue if x not in set(can_run_list)
+            x for x in self.waiting_queue if x not in can_run_set
         ]
         if adder.preempt_list:
             for req in adder.preempt_list:
