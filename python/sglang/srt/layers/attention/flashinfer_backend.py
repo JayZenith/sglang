@@ -485,11 +485,14 @@ class FlashInferAttnBackend(AttentionBackend):
                 multi_item_params = self._process_multi_item_scoring(forward_batch)
 
             # Pre-compute prefix_lens_sum on CPU to avoid device sync
-            prefix_lens_sum = (
-                sum(forward_batch.extend_prefix_lens_cpu)
-                if forward_batch.extend_prefix_lens_cpu is not None
-                else None
-            )
+            # Handle both list and CPU tensor types safely
+            x = forward_batch.extend_prefix_lens_cpu
+            if x is None:
+                prefix_lens_sum = None
+            elif isinstance(x, torch.Tensor):
+                prefix_lens_sum = int(x.sum().item())  # CPU tensor, no GPU sync
+            else:
+                prefix_lens_sum = int(sum(x))  # Python list
 
             self.indices_updater_prefill.update(
                 forward_batch.req_pool_indices,
