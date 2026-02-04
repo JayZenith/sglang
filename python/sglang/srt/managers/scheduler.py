@@ -2272,13 +2272,17 @@ class Scheduler(
                             model_worker_batch
                             # here pp is not compatible with overlap
                         )
-                    # FIXME(lsyin): maybe move this to forward_batch_generation
-                    batch_result.copy_done = self.device_module.Event()
                     if batch_result.delay_sample_func is None:
                         self.future_map.store_to_map(future_indices, batch_result)
-                        batch_result.copy_to_cpu(return_logprob=batch.return_logprob)
                     else:
                         batch_result.future_indices = future_indices
+
+                # Move CPU copy to dedicated copy_stream to overlap with next forward
+                if batch_result.delay_sample_func is None:
+                    with self.copy_stream_ctx:
+                        self.copy_stream.wait_stream(self.forward_stream)
+                        batch_result.copy_done = self.device_module.Event()
+                        batch_result.copy_to_cpu(return_logprob=batch.return_logprob)
 
                 # FIXME(lsyin): move this assignment elsewhere
                 future_indices_or_next_token_ids = -future_indices.indices
@@ -2346,6 +2350,10 @@ class Scheduler(
                         model_worker_batch
                     )
                     ret = EmbeddingBatchResult(embeddings=embeddings)
+
+                # Move CPU copy to dedicated copy_stream to overlap with next forward
+                with self.copy_stream_ctx:
+                    self.copy_stream.wait_stream(self.forward_stream)
                     ret.copy_to_cpu()
             else:
                 embeddings = self.tp_worker.forward_batch_embedding(model_worker_batch)
@@ -2385,6 +2393,11 @@ class Scheduler(
             _batch_result = batch_result.delay_sample_func()
             assert _batch_result is batch_result
             self.future_map.store_to_map(batch_result.future_indices, batch_result)
+
+        # Move CPU copy to dedicated copy_stream to overlap with next forward
+        with self.copy_stream_ctx:
+            self.copy_stream.wait_stream(self.forward_stream)
+            batch_result.copy_done = self.device_module.Event()
             batch_result.copy_to_cpu(return_logprob=self.cur_batch.return_logprob)
 
     def process_batch_result(
