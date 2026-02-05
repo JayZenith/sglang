@@ -2272,13 +2272,17 @@ class Scheduler(
                             model_worker_batch
                             # here pp is not compatible with overlap
                         )
-                    # FIXME(lsyin): maybe move this to forward_batch_generation
-                    batch_result.copy_done = self.device_module.Event()
                     if batch_result.delay_sample_func is None:
                         self.future_map.store_to_map(future_indices, batch_result)
-                        batch_result.copy_to_cpu(return_logprob=batch.return_logprob)
                     else:
                         batch_result.future_indices = future_indices
+
+                # Move CPU copy to copy_stream to overlap with next forward pass
+                with self.copy_stream_ctx:
+                    self.copy_stream.wait_stream(self.forward_stream)
+                    batch_result.copy_done = self.device_module.Event()
+                    if batch_result.delay_sample_func is None:
+                        batch_result.copy_to_cpu(return_logprob=batch.return_logprob)
 
                 # FIXME(lsyin): move this assignment elsewhere
                 future_indices_or_next_token_ids = -future_indices.indices
