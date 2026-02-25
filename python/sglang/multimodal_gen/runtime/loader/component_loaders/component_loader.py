@@ -127,6 +127,7 @@ class ComponentLoader(ABC):
             current_gpu_mem = current_platform.get_available_gpu_memory()
             model_size = get_memory_usage_of_component(component)
             consumed = gpu_mem_before_loading - current_gpu_mem
+            model_size_str = f"{model_size:.2f}" if model_size is not None else "N/A"
 
             # detect component device
             try:
@@ -138,19 +139,19 @@ class ComponentLoader(ABC):
 
             if is_on_gpu:
                 logger.info(
-                    f"Loaded %s: %s ({source} version). model size: %.2f GB, consumed GPU: %.2f GB, avail GPU mem: %.2f GB",
+                    f"Loaded %s: %s ({source} version). model size: %s GB, consumed GPU: %.2f GB, avail GPU mem: %.2f GB",
                     component_name,
                     component.__class__.__name__,
-                    model_size,
+                    model_size_str,
                     consumed,
                     current_gpu_mem,
                 )
             else:
                 logger.info(
-                    f"Loaded %s: %s ({source} version). model size: %.2f GB, device: %s, avail GPU mem: %.2f GB",
+                    f"Loaded %s: %s ({source} version). model size: %s GB, device: %s, avail GPU mem: %.2f GB",
                     component_name,
                     component.__class__.__name__,
-                    model_size,
+                    model_size_str,
                     component_device,
                     current_gpu_mem,
                 )
